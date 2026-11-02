@@ -138,8 +138,11 @@ export async function onRequestPost({ request, env }) {
   const tAi = Date.now() - t0;
   const data = await r.json().catch(() => ({}));
   if (!r.ok) {
-    const msg = r.status === 429 ? "आजची मोफत मर्यादा संपली. थोड्या वेळाने प्रयत्न करा." : "स्कॅन झाले नाही (" + r.status + ").";
-    return json({ error: msg, detail: (data && data.error && data.error.message) || "" }, 502);
+    const detail = String((data && data.error && data.error.message) || "");
+    const msg = r.status === 429
+      ? "आजची मोफत मर्यादा संपली. थोड्या वेळाने प्रयत्न करा."
+      : "स्कॅन झाले नाही (" + r.status + ")" + (detail ? ": " + detail.slice(0, 200) : "") + ".";
+    return json({ error: msg, detail }, 502);
   }
   const text = (data?.candidates?.[0]?.content?.parts || []).map((p) => p.text || "").join("");
   let items = [];
