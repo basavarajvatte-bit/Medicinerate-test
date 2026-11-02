@@ -113,16 +113,25 @@ export async function onRequestPost({ request, env }) {
   if (!image || image.length > 4000000) return json({ error: "फोटो नाही किंवा खूप मोठा आहे." }, 400);
   const meds = parseList(String(body.list || "").slice(0, 400000));
 
-  let r;
-  try {
-    r = await fetch("https://generativelanguage.googleapis.com/v1beta/models/" + model + ":generateContent", {
+  const think = String(env.THINK || "").trim();
+  const call = (withThink) =>
+    fetch("https://generativelanguage.googleapis.com/v1beta/models/" + model + ":generateContent", {
       method: "POST",
       headers: { "Content-Type": "application/json", "x-goog-api-key": key },
       body: JSON.stringify({
         contents: [{ parts: [{ inline_data: { mime_type: "image/jpeg", data: image } }, { text: PROMPT }] }],
-        generationConfig: { temperature: 0, maxOutputTokens: 1500, responseMimeType: "application/json", responseSchema: SCHEMA },
+        generationConfig: Object.assign(
+          { temperature: 0, maxOutputTokens: 1500, responseMimeType: "application/json", responseSchema: SCHEMA },
+          withThink && think ? { thinkingConfig: { thinkingLevel: think } } : {}
+        ),
       }),
     });
+
+  let r, usedThink = false;
+  try {
+    r = await call(true);
+    usedThink = !!think;
+    if (!r.ok && r.status === 400 && think) { r = await call(false); usedThink = false; }
   } catch {
     return json({ error: "Google शी कनेक्ट होता आले नाही." }, 502);
   }
@@ -140,5 +149,5 @@ export async function onRequestPost({ request, env }) {
     const m = bestMatch(it, meds);
     return { name: String(it.name || ""), salt: String(it.salt || ""), use: String(it.use || ""), idx: m.idx, by: m.by };
   });
-  return json({ items, ms: { ai: tAi, total: Date.now() - t0, model } });
+  return json({ items, ms: { ai: tAi, total: Date.now() - t0, model, think: usedThink ? think : "default" } });
 }
