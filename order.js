@@ -40,7 +40,8 @@
       ".bdg{display:inline-block;font:800 12px/1.5 Mukta,sans-serif;padding:0 7px;border-radius:999px;margin:2px 4px 2px 0;background:var(--brand);color:var(--brand-ink)}"+
       ".bdg.b2{background:var(--accent);color:var(--accent-ink)}"+
       ".addrow{display:flex;flex-wrap:wrap;gap:6px 14px;align-items:center;justify-content:center;margin-top:14px}"+
-      ".addbtn{width:100%;background:var(--card);color:var(--brand);border:2px dashed var(--brand);font:800 17px Mukta,sans-serif;padding:13px;border-radius:14px;cursor:pointer}"+
+      ".addtwo{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:14px}"+
+      ".addbtn{width:100%;background:var(--card);color:var(--brand);border:2px dashed var(--brand);font:800 15px/1.25 Mukta,sans-serif;padding:10px 6px;border-radius:12px;cursor:pointer}"+
       ".addgal{border:0;background:none;color:var(--brand);font:700 15px Mukta,sans-serif;text-decoration:underline;text-underline-offset:3px;cursor:pointer;padding:2px}"+
       ".sc.grp{margin-top:6px;border-top-left-radius:6px;border-top-right-radius:6px;border-left:4px solid var(--accent)}"+
       ".grpnote{font-size:14px;font-weight:700;color:var(--mute);margin:0 0 6px}"+
@@ -190,7 +191,7 @@
   function resultsHtml(secs,slot){
     var h=(W.__cards||[]).map(cardHtml).join("");
     if((W.__cards||[]).some(function(c){return c.alts.length}))h+='<p class="mini">ताकद (mg) जुळते का ते दुकानात विचारा. दुसऱ्या कंपनीचे औषध हवे असेल तर वर तेच निवडा.</p>';
-    h+=slot||'<div class="addrow"><button class="addbtn" id="addcam">➕ आणखी औषध जोडा</button><button class="addgal" id="addgal">गॅलरीतून जोडा</button></div>';
+    h+=slot||'<div class="addtwo"><button class="addbtn" id="addcam">➕ आणखी औषध जोडा</button><button class="addbtn" id="addgal">गॅलरीतून जोडा</button></div>';
     h+='<div class="result tot" id="totbox"></div>';
     h+='<p class="note">'+(secs?'स्कॅनला '+secs+' सेकंद लागले. ':'')+'औषध घेण्यापूर्वी फार्मासिस्टकडून खात्री करा. दुसऱ्या कंपनीचे औषध घेताना घटक आणि ताकद (mg) सारखी आहे का ते फार्मासिस्टला विचारा.</p>';
     h+='<div class="ordbar" id="ordbar"></div>';
