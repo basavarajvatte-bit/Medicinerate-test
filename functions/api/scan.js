@@ -101,50 +101,84 @@ const SCHEMA = {
   required: ["items"],
 };
 
-// ---------- Google ला कॉल (वेळमर्यादेसह) ----------
-const BUSY = [429, 500, 502, 503, 504];
+// ---------- Google ला कॉल ----------
+async function callGemini(model, think, image, key, signal) {
+  const r = await fetch("https://generativelanguage.googleapis.com/v1beta/models/" + model + ":generateContent", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "x-goog-api-key": key },
+    signal,
+    body: JSON.stringify({
+      contents: [{ parts: [{ inline_data: { mime_type: "image/jpeg", data: image } }, { text: PROMPT }] }],
+      generationConfig: Object.assign(
+        { temperature: 0, maxOutputTokens: 1500, responseMimeType: "application/json", responseSchema: SCHEMA },
+        think ? { thinkingConfig: { thinkingLevel: think } } : {}
+      ),
+    }),
+  });
+  const data = await r.json().catch(() => ({}));
+  return { r, data };
+}
 
-async function callGemini(model, think, image, key, timeoutMs) {
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+// एका मॉडेलचा प्रयत्न: यशस्वी {ok:true, items} किंवा अपयश {fail:true}
+async function tryModel(name, think, image, key, ctrl) {
+  const timer = setTimeout(() => ctrl.abort(), 20000);
   try {
-    const r = await fetch("https://generativelanguage.googleapis.com/v1beta/models/" + model + ":generateContent", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "x-goog-api-key": key },
-      signal: ctrl.signal,
-      body: JSON.stringify({
-        contents: [{ parts: [{ inline_data: { mime_type: "image/jpeg", data: image } }, { text: PROMPT }] }],
-        generationConfig: Object.assign(
-          { temperature: 0, maxOutputTokens: 1500, responseMimeType: "application/json", responseSchema: SCHEMA },
-          think ? { thinkingConfig: { thinkingLevel: think } } : {}
-        ),
-      }),
-    });
-    const data = await r.json().catch(() => ({}));
-    if (ctrl.signal.aborted) throw new Error("timeout");
-    return { r, data };
+    let out = await callGemini(name, think, image, key, ctrl.signal);
+    if (out.r.status === 400 && think) out = await callGemini(name, "", image, key, ctrl.signal);
+    if (!out.r.ok) {
+      const detail = String((out.data && out.data.error && out.data.error.message) || "");
+      return { fail: true, status: out.r.status, detail };
+    }
+    const text = (out.data?.candidates?.[0]?.content?.parts || []).map((p) => p.text || "").join("");
+    let parsed;
+    try { parsed = JSON.parse(text); } catch { return { fail: true, status: 200, detail: "unreadable" }; }
+    return { ok: true, items: Array.isArray(parsed.items) ? parsed.items : [] };
+  } catch {
+    return { fail: true, status: 0, detail: "timeout/network" };
   } finally {
     clearTimeout(timer);
   }
 }
 
-// एका मॉडेलवर प्रयत्न. अपयश आल्यास {fail:true}
-async function attempt(model, think, image, key, timeoutMs) {
-  try {
-    let out = await callGemini(model, think, image, key, timeoutMs);
-    if (out.r.status === 400 && think) out = await callGemini(model, "", image, key, timeoutMs);
-    return out;
-  } catch {
-    return { fail: true };
-  }
+// शर्यत: मॉडेल 1 लगेच; hedgeMs नंतर किंवा अपयशावर पुढचा. जो आधी बरोबर उत्तर देईल तो जिंकतो.
+function race(models, think, image, key, hedgeMs) {
+  return new Promise((resolve) => {
+    const ctrls = models.map(() => new AbortController());
+    const started = models.map(() => false);
+    let done = false, failed = 0, last = null;
+    const finish = (v) => {
+      if (done) return;
+      done = true;
+      ctrls.forEach((c) => { try { c.abort(); } catch {} });
+      resolve(v);
+    };
+    const start = (i) => {
+      if (done || i >= models.length || started[i]) return;
+      started[i] = true;
+      if (i + 1 < models.length) setTimeout(() => start(i + 1), hedgeMs);
+      tryModel(models[i], i === 0 ? think : "", image, key, ctrls[i]).then((res) => {
+        if (done) return;
+        if (res.ok) return finish(Object.assign({}, res, { model: models[i], idx: i }));
+        last = res;
+        failed++;
+        start(i + 1);
+        if (failed === models.length) finish({ failed: true, last });
+      });
+    };
+    start(0);
+  });
 }
 
 export async function onRequestPost({ request, env }) {
   const t0 = Date.now();
   const key = env.GEMINI_API_KEY;
   if (!key) return json({ error: "सर्व्हरवर GEMINI_API_KEY सेट केलेला नाही." }, 500);
-  const primary = env.GEMINI_MODEL || "gemini-3.1-flash-lite";
-  const fallback = env.GEMINI_FALLBACK_MODEL || "gemini-2.5-flash-lite";
+
+  const models = [
+    env.GEMINI_MODEL || "gemini-3.1-flash-lite",
+    env.GEMINI_FALLBACK_MODEL || "gemini-3.5-flash-lite",
+    env.GEMINI_FALLBACK_MODEL2 || "gemini-flash-latest",
+  ].map((m) => String(m).trim()).filter((m, i, a) => m && a.indexOf(m) === i);
 
   let body;
   try { body = await request.json(); } catch { return json({ error: "चुकीची विनंती" }, 400); }
@@ -153,33 +187,25 @@ export async function onRequestPost({ request, env }) {
   const meds = parseList(String(body.list || "").slice(0, 400000));
 
   const think = String(env.THINK || "").trim();
+  const hedgeMs = parseInt(env.HEDGE_MS || "2500", 10) || 2500;
 
-  let used = primary, fell = false;
-  let out = await attempt(primary, think, image, key, 8000);
-  if ((out.fail || BUSY.includes(out.r.status)) && fallback && fallback !== primary) {
-    out = await attempt(fallback, "", image, key, 20000);
-    used = fallback;
-    fell = true;
-  }
+  const res = await race(models, think, image, key, hedgeMs);
   const tAi = Date.now() - t0;
 
-  if (out.fail) return json({ error: "Google शी कनेक्ट होता आले नाही. पुन्हा प्रयत्न करा." }, 502);
-  const { r, data } = out;
-  if (!r.ok) {
-    const detail = String((data && data.error && data.error.message) || "");
-    const msg = r.status === 429
+  if (res.failed) {
+    const l = res.last || {};
+    const msg = l.status === 429
       ? "आजची मोफत मर्यादा संपली. थोड्या वेळाने प्रयत्न करा."
-      : "स्कॅन झाले नाही (" + r.status + ")" + (detail ? ": " + detail.slice(0, 200) : "") + ".";
-    return json({ error: msg, detail }, 502);
+      : "स्कॅन झाले नाही (" + (l.status || "नेटवर्क") + ")" + (l.detail ? ": " + String(l.detail).slice(0, 200) : "") + ".";
+    return json({ error: msg, detail: l.detail || "" }, 502);
   }
 
-  const text = (data?.candidates?.[0]?.content?.parts || []).map((p) => p.text || "").join("");
-  let items = [];
-  try { items = JSON.parse(text).items || []; } catch {}
-
-  items = items.map((it) => {
+  const items = res.items.map((it) => {
     const m = bestMatch(it, meds);
     return { name: String(it.name || ""), salt: String(it.salt || ""), use: String(it.use || ""), idx: m.idx, by: m.by };
   });
-  return json({ items, ms: { ai: tAi, total: Date.now() - t0, model: used, fallback: fell, think: fell ? "n/a" : (think || "default") } });
+  return json({
+    items,
+    ms: { ai: tAi, total: Date.now() - t0, model: res.model, backup: res.idx > 0, think: res.idx === 0 ? (think || "default") : "n/a" },
+  });
 }
