@@ -275,6 +275,17 @@
       g("retry").onclick=function(){W.doScan(W.__last)};
     }
   };
+  /* गॅलरीतून एकावेळी अनेक फोटो */
+  var gf=g("file2");
+  if(gf){
+    gf.multiple=true;
+    gf.onchange=async function(){
+      var fs=Array.prototype.slice.call(this.files||[]);
+      this.value="";
+      if(fs.length>5){alert("एका वेळी जास्तीत जास्त 5 फोटो निवडा. पहिले 5 फोटो स्कॅन होतील.");fs=fs.slice(0,5)}
+      for(var i=0;i<fs.length;i++)await W.doScan(fs[i]);
+    };
+  }
   W.__tulja={cardsFrom:cardsFrom,cardHtml:cardHtml,totHtml:totHtml,build:build};
 
   /* मालकासाठी स्कॅन अहवाल */
