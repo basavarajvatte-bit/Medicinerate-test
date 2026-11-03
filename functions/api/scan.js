@@ -30,7 +30,45 @@ function numsCompatible(a, b) {
   for (const x of a) if (b.has(x)) return true;
   return false;
 }
-const words = (s) => new Set(norm(s).split(" ").filter((w) => w.length >= 4 && /^[a-z]+$/.test(w)));
+const FORM = new Set(["hcl","hydrochloride","sodium","potassium","sulphate","sulfate","maleate","besylate","mesylate","tartrate","succinate","phosphate","trihydrate","dihydrate","anhydrous","tablet","tablets","capsule","capsules","syrup","injection"]);
+const words = (s) => new Set(norm(s).split(" ").filter((w) => w.length >= 3 && /^[a-z]+$/.test(w) && !FORM.has(w)));
+function lev(a, b) {
+  const m = a.length, n = b.length;
+  if (!m) return n;
+  if (!n) return m;
+  let prev = Array.from({ length: n + 1 }, (_, j) => j);
+  for (let i = 1; i <= m; i++) {
+    const cur = [i];
+    for (let j = 1; j <= n; j++) {
+      cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+    }
+    prev = cur;
+  }
+  return prev[n];
+}
+const wordSim = (a, b) => 1 - lev(a, b) / Math.max(a.length, b.length);
+// दोन्ही सॉल्टमधील सर्व घटक (शब्द) सारखे असतील तरच true (cetirizine ≠ levocetirizine)
+function sameSalt(A, B) {
+  if (!A.size || !B.size || A.size !== B.size) return false;
+  const left = [...B];
+  for (const w of A) {
+    let bi = -1, bs = 0;
+    left.forEach((x, i) => { const sc = wordSim(w, x); if (sc > bs) { bs = sc; bi = i; } });
+    if (bi < 0 || bs < 0.85) return false;
+    left.splice(bi, 1);
+  }
+  return true;
+}
+const setEq = (a, b) => a.size === b.size && [...a].every((x) => b.has(x));
+const setHit = (a, b) => [...a].some((x) => b.has(x));
+// "same" = ताकद (mg) जुळली, "check" = ताकद ठरवता आली नाही, null = ताकद वेगळी (वगळा)
+function strength(it, d) {
+  const A = nums(it.salt), B = nums(d.s);
+  if (A.size) return B.size ? (setEq(A, B) ? "same" : null) : "check";
+  const A2 = nums(it.name), B2 = nums(d.n + " " + d.s);
+  if (A2.size && B2.size) return setHit(A2, B2) ? "same" : null;
+  return "check";
+}
 function jacc(a, b) {
   if (!a.size || !b.size) return 0;
   let i = 0;
@@ -54,18 +92,30 @@ function parseList(text) {
   return out;
 }
 
-function bestMatch(it, meds) {
+function match(it, meds) {
+  // 1) तोच ब्रँड (नावावरून)
   const itNums = nums(it.name + " " + it.salt);
-  const itWords = words(it.salt);
-  let best = null, bestScore = 0, by = "name";
+  let exact = null, es = 0;
   for (const d of meds) {
-    if (!numsCompatible(itNums, d.nn)) continue;          // Dolo 650 ≠ Dolo 500
-    const nameSim = dice(it.name, d.n);
-    const saltSim = jacc(itWords, d.sw);
-    const score = Math.max(nameSim, saltSim * 0.95);
-    if (score > bestScore) { bestScore = score; best = d; by = nameSim >= saltSim * 0.95 ? "name" : "salt"; }
+    if (!numsCompatible(itNums, d.nn)) continue;
+    const sc = dice(it.name, d.n);
+    if (sc > es) { es = sc; exact = d.idx; }
   }
-  return best && bestScore >= 0.72 ? { idx: best.idx, by } : { idx: null, by: "" };
+  if (es < 0.72) exact = null;
+
+  // 2) तोच घटक (सॉल्ट) असलेली सर्व औषधे, कोणत्याही कंपनीची
+  const iw = words(it.salt);
+  const alts = [];
+  for (const d of meds) {
+    if (!sameSalt(iw, d.sw)) continue;
+    const st = strength(it, d);
+    if (st) alts.push({ i: d.idx, st });
+  }
+  if (exact !== null && !alts.some((a) => a.i === exact)) alts.push({ i: exact, st: "check" });
+
+  const idx = exact !== null ? exact : (alts.length ? alts[0].i : null);
+  const by = exact !== null ? "name" : (alts.length ? "salt" : "");
+  return { idx, by, alts, exact };
 }
 
 // ---------- AI : फक्त फोटो वाचतो ----------
@@ -138,19 +188,16 @@ export async function onRequestPost({ request, env }) {
   const tAi = Date.now() - t0;
   const data = await r.json().catch(() => ({}));
   if (!r.ok) {
-    const detail = String((data && data.error && data.error.message) || "");
-    const msg = r.status === 429
-      ? "आजची मोफत मर्यादा संपली. थोड्या वेळाने प्रयत्न करा."
-      : "स्कॅन झाले नाही (" + r.status + ")" + (detail ? ": " + detail.slice(0, 200) : "") + ".";
-    return json({ error: msg, detail }, 502);
+    const msg = r.status === 429 ? "आजची मोफत मर्यादा संपली. थोड्या वेळाने प्रयत्न करा." : "स्कॅन झाले नाही (" + r.status + ").";
+    return json({ error: msg, detail: (data && data.error && data.error.message) || "" }, 502);
   }
   const text = (data?.candidates?.[0]?.content?.parts || []).map((p) => p.text || "").join("");
   let items = [];
   try { items = JSON.parse(text).items || []; } catch {}
 
   items = items.map((it) => {
-    const m = bestMatch(it, meds);
-    return { name: String(it.name || ""), salt: String(it.salt || ""), use: String(it.use || ""), idx: m.idx, by: m.by };
+    const m = match(it, meds);
+    return { name: String(it.name || ""), salt: String(it.salt || ""), use: String(it.use || ""), idx: m.idx, by: m.by, exact: m.exact, alts: m.alts };
   });
   return json({ items, ms: { ai: tAi, total: Date.now() - t0, model, think: usedThink ? think : "default" } });
 }
