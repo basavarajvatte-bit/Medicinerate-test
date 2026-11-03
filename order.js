@@ -48,6 +48,8 @@
       ".qty select{width:92px;flex:none;padding:8px 10px;font-weight:700}"+
       ".qtyp{display:flex;justify-content:space-between;align-items:baseline;margin-top:6px;font-size:16px;color:var(--mute)}"+
       ".qtyp b{font:400 25px/1.1 var(--disp);color:var(--brand)}"+
+      ".use{font-size:20px;line-height:1.3}"+
+      ".mini{font-size:12px;line-height:1.4;color:var(--mute);margin:12px 2px 0}"+
       ".ask{margin-top:10px;padding:10px 12px;border-radius:10px;background:var(--bg);border-left:4px solid var(--accent);font-weight:600;font-size:16px}";
     document.head.appendChild(st);
   }
@@ -70,7 +72,6 @@
     if(!c.alts.length){
       h+='<div class="ask">आमच्या यादीत हे औषध किंवा याच घटकाचे औषध नाही. दुकानात विचारा.</div>';
     }else{
-      var any=c.alts.some(function(a){return a.st==="check"});
       h+='<div class="same">'+I("ok")+'<span>'+(c.ex!=null
         ?'हे औषध आमच्याकडे आहे.'
         :'"'+E(c.n)+'" आमच्याकडे नाही, पण तोच घटक ('+E(c.s)+') असलेली ही औषधे आहेत:')+'</span></div>';
@@ -83,8 +84,7 @@
           (a.i===c.ex?'<span class="bdg b2">तुम्ही स्कॅन केलेले</span>':'')+
           '<small>'+E(d.s)+' · MRP '+F(d.m)+'</small></span><span class="price">'+F(d.p)+(d.t?'<small>/ '+d.t+' गोळ्या</small>':'')+'</span></label>';
       });
-      h+='</div><div id="qb'+k+'">'+qtyHtml(c,k)+'</div><p class="note" style="margin:8px 0 0">'+(any?'ताकद (mg) जुळते का ते दुकानात विचारा. ':'ताकद सारखी आहे ✓. ')+
-         'दुसऱ्या कंपनीचे औषध हवे असेल तर वर तेच निवडा.</p>';
+      h+='</div><div id="qb'+k+'">'+qtyHtml(c,k)+'</div>';
     }
     h+='<div class="use"><small>कशासाठी वापरतात</small>'+E(c.u)+'</div></div>';
     return h;
@@ -189,6 +189,7 @@
   /* सर्व स्कॅन केलेली औषधे एकत्र दाखवणे */
   function resultsHtml(secs,slot){
     var h=(W.__cards||[]).map(cardHtml).join("");
+    if((W.__cards||[]).some(function(c){return c.alts.length}))h+='<p class="mini">ताकद (mg) जुळते का ते दुकानात विचारा. दुसऱ्या कंपनीचे औषध हवे असेल तर वर तेच निवडा.</p>';
     h+=slot||'<div class="addrow"><button class="addbtn" id="addcam">➕ आणखी औषध जोडा</button><button class="addgal" id="addgal">गॅलरीतून जोडा</button></div>';
     h+='<div class="result tot" id="totbox"></div>';
     h+='<p class="note">'+(secs?'स्कॅनला '+secs+' सेकंद लागले. ':'')+'औषध घेण्यापूर्वी फार्मासिस्टकडून खात्री करा. दुसऱ्या कंपनीचे औषध घेताना घटक आणि ताकद (mg) सारखी आहे का ते फार्मासिस्टला विचारा.</p>';
