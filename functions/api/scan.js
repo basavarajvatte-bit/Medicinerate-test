@@ -53,7 +53,7 @@ const firstWord = (t) => brandOf(t).trim().split(/\s+/)[0] || "";
 const fixMr = (t) => String(t || "").replace(/अ\u200d?ॅ/g, "ॲ");
 function saltText(salt, str, printed) {
   const s = String(salt || "").trim(), t = String(str || "").trim();
-  if (!s) return "घटकांची माहिती दुकानात मिळेल.";
+  if (!s) return "";
   const need = [...nums(t)];
   const have = nums(s);
   if (!t) return printed === false ? s : s + " (ताकद दिसली नाही)";
@@ -141,6 +141,36 @@ const SCHEMA = {
   },
   required: ["items"],
 };
+
+// आपल्या यादीतील घटकावरून मराठी उपयोग (फोटोतील अंदाजावरून नाही)
+async function usesFor(salts, model, key) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 6000);
+  try {
+    const r = await fetch("https://generativelanguage.googleapis.com/v1beta/models/" + model + ":generateContent", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-goog-api-key": key },
+      signal: ctrl.signal,
+      body: JSON.stringify({
+        contents: [{ parts: [{ text:
+          "For each composition below, write what it is used for in simple everyday MARATHI (Devanagari), maximum 8 words, no medical terms. " +
+          "If it is an injection, syrup, drops or ointment, say so. Return one string for each line, in the same order.\n" +
+          salts.map((x, i) => (i + 1) + ". " + x).join("\n") }] }],
+        generationConfig: { temperature: 0, maxOutputTokens: 500, responseMimeType: "application/json",
+          responseSchema: { type: "ARRAY", items: { type: "STRING" } } },
+      }),
+    });
+    if (!r.ok) return [];
+    const j = await r.json();
+    const t = (j?.candidates?.[0]?.content?.parts || []).map((p) => p.text || "").join("");
+    const a = JSON.parse(t);
+    return Array.isArray(a) ? a : [];
+  } catch {
+    return [];
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 // ---------- Google ला कॉल ----------
 async function callGemini(model, think, image, key, signal) {
@@ -241,15 +271,24 @@ export async function onRequestPost({ request, env }) {
     return json({ error: msg, detail: l.detail || "" }, 502);
   }
 
+  const askUse = [];
   const items = res.items.map((it) => {
     const m = bestMatch(it, meds);
     const known = m.by === "name" && m.d;   // नावाने जुळले: आपल्या यादीतील नाव आणि घटक खरे मानायचे
-    return {
+    const guess = it.saltPrinted === false; // घटक फोटोत नाहीत: AI चा अंदाज ग्राहकाला दाखवायचा नाही
+    const row = {
       name: known ? m.d.n : String(it.name || ""),
-      salt: known && m.d.s ? m.d.s : saltText(it.salt, it.strength, it.saltPrinted),
-      use: fixMr(it.use), idx: m.idx, by: m.by,
+      salt: known && m.d.s ? m.d.s : guess ? "" : saltText(it.salt, it.strength, it.saltPrinted),
+      use: guess ? "" : fixMr(it.use), idx: m.idx, by: m.by,
     };
+    if (!known && guess) row.guess = true;
+    if (known && guess && m.d.s) askUse.push(row);
+    return row;
   });
+  if (askUse.length) {
+    const uses = await usesFor(askUse.map((r) => r.salt), models[0], key);
+    askUse.forEach((r, i) => { r.use = fixMr(uses[i]); });
+  }
   return json({
     items,
     ms: { ai: tAi, total: Date.now() - t0, model: res.model, backup: res.idx > 0, think: res.idx === 0 ? (think || "default") : "n/a" },
