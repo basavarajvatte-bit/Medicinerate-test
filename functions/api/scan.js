@@ -30,45 +30,7 @@ function numsCompatible(a, b) {
   for (const x of a) if (b.has(x)) return true;
   return false;
 }
-const FORM = new Set(["hcl","hydrochloride","sodium","potassium","sulphate","sulfate","maleate","besylate","mesylate","tartrate","succinate","phosphate","trihydrate","dihydrate","anhydrous","tablet","tablets","capsule","capsules","syrup","injection"]);
-const words = (s) => new Set(norm(s).split(" ").filter((w) => w.length >= 3 && /^[a-z]+$/.test(w) && !FORM.has(w)));
-function lev(a, b) {
-  const m = a.length, n = b.length;
-  if (!m) return n;
-  if (!n) return m;
-  let prev = Array.from({ length: n + 1 }, (_, j) => j);
-  for (let i = 1; i <= m; i++) {
-    const cur = [i];
-    for (let j = 1; j <= n; j++) {
-      cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
-    }
-    prev = cur;
-  }
-  return prev[n];
-}
-const wordSim = (a, b) => 1 - lev(a, b) / Math.max(a.length, b.length);
-// दोन्ही सॉल्टमधील सर्व घटक (शब्द) सारखे असतील तरच true (cetirizine ≠ levocetirizine)
-function sameSalt(A, B) {
-  if (!A.size || !B.size || A.size !== B.size) return false;
-  const left = [...B];
-  for (const w of A) {
-    let bi = -1, bs = 0;
-    left.forEach((x, i) => { const sc = wordSim(w, x); if (sc > bs) { bs = sc; bi = i; } });
-    if (bi < 0 || bs < 0.85) return false;
-    left.splice(bi, 1);
-  }
-  return true;
-}
-const setEq = (a, b) => a.size === b.size && [...a].every((x) => b.has(x));
-const setHit = (a, b) => [...a].some((x) => b.has(x));
-// "same" = ताकद (mg) जुळली, "check" = ताकद ठरवता आली नाही, null = ताकद वेगळी (वगळा)
-function strength(it, d) {
-  const A = nums(it.salt), B = nums(d.s);
-  if (A.size) return B.size ? (setEq(A, B) ? "same" : null) : "check";
-  const A2 = nums(it.name), B2 = nums(d.n + " " + d.s);
-  if (A2.size && B2.size) return setHit(A2, B2) ? "same" : null;
-  return "check";
-}
+const words = (s) => new Set(norm(s).split(" ").filter((w) => w.length >= 4 && /^[a-z]+$/.test(w)));
 function jacc(a, b) {
   if (!a.size || !b.size) return 0;
   let i = 0;
@@ -92,30 +54,18 @@ function parseList(text) {
   return out;
 }
 
-function match(it, meds) {
-  // 1) तोच ब्रँड (नावावरून)
+function bestMatch(it, meds) {
   const itNums = nums(it.name + " " + it.salt);
-  let exact = null, es = 0;
+  const itWords = words(it.salt);
+  let best = null, bestScore = 0, by = "name";
   for (const d of meds) {
-    if (!numsCompatible(itNums, d.nn)) continue;
-    const sc = dice(it.name, d.n);
-    if (sc > es) { es = sc; exact = d.idx; }
+    if (!numsCompatible(itNums, d.nn)) continue;          // Dolo 650 ≠ Dolo 500
+    const nameSim = dice(it.name, d.n);
+    const saltSim = jacc(itWords, d.sw);
+    const score = Math.max(nameSim, saltSim * 0.95);
+    if (score > bestScore) { bestScore = score; best = d; by = nameSim >= saltSim * 0.95 ? "name" : "salt"; }
   }
-  if (es < 0.72) exact = null;
-
-  // 2) तोच घटक (सॉल्ट) असलेली सर्व औषधे, कोणत्याही कंपनीची
-  const iw = words(it.salt);
-  const alts = [];
-  for (const d of meds) {
-    if (!sameSalt(iw, d.sw)) continue;
-    const st = strength(it, d);
-    if (st) alts.push({ i: d.idx, st });
-  }
-  if (exact !== null && !alts.some((a) => a.i === exact)) alts.push({ i: exact, st: "check" });
-
-  const idx = exact !== null ? exact : (alts.length ? alts[0].i : null);
-  const by = exact !== null ? "name" : (alts.length ? "salt" : "");
-  return { idx, by, alts, exact };
+  return best && bestScore >= 0.72 ? { idx: best.idx, by } : { idx: null, by: "" };
 }
 
 // ---------- AI : फक्त फोटो वाचतो ----------
@@ -151,11 +101,50 @@ const SCHEMA = {
   required: ["items"],
 };
 
+// ---------- Google ला कॉल (वेळमर्यादेसह) ----------
+const BUSY = [429, 500, 502, 503, 504];
+
+async function callGemini(model, think, image, key, timeoutMs) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    const r = await fetch("https://generativelanguage.googleapis.com/v1beta/models/" + model + ":generateContent", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-goog-api-key": key },
+      signal: ctrl.signal,
+      body: JSON.stringify({
+        contents: [{ parts: [{ inline_data: { mime_type: "image/jpeg", data: image } }, { text: PROMPT }] }],
+        generationConfig: Object.assign(
+          { temperature: 0, maxOutputTokens: 1500, responseMimeType: "application/json", responseSchema: SCHEMA },
+          think ? { thinkingConfig: { thinkingLevel: think } } : {}
+        ),
+      }),
+    });
+    const data = await r.json().catch(() => ({}));
+    if (ctrl.signal.aborted) throw new Error("timeout");
+    return { r, data };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+// एका मॉडेलवर प्रयत्न. अपयश आल्यास {fail:true}
+async function attempt(model, think, image, key, timeoutMs) {
+  try {
+    let out = await callGemini(model, think, image, key, timeoutMs);
+    if (out.r.status === 400 && think) out = await callGemini(model, "", image, key, timeoutMs);
+    return out;
+  } catch {
+    return { fail: true };
+  }
+}
+
 export async function onRequestPost({ request, env }) {
   const t0 = Date.now();
   const key = env.GEMINI_API_KEY;
   if (!key) return json({ error: "सर्व्हरवर GEMINI_API_KEY सेट केलेला नाही." }, 500);
-  const model = env.GEMINI_MODEL || "gemini-3.1-flash-lite";
+  const primary = env.GEMINI_MODEL || "gemini-3.1-flash-lite";
+  const fallback = env.GEMINI_FALLBACK_MODEL || "gemini-2.5-flash-lite";
 
   let body;
   try { body = await request.json(); } catch { return json({ error: "चुकीची विनंती" }, 400); }
@@ -164,40 +153,33 @@ export async function onRequestPost({ request, env }) {
   const meds = parseList(String(body.list || "").slice(0, 400000));
 
   const think = String(env.THINK || "").trim();
-  const call = (withThink) =>
-    fetch("https://generativelanguage.googleapis.com/v1beta/models/" + model + ":generateContent", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "x-goog-api-key": key },
-      body: JSON.stringify({
-        contents: [{ parts: [{ inline_data: { mime_type: "image/jpeg", data: image } }, { text: PROMPT }] }],
-        generationConfig: Object.assign(
-          { temperature: 0, maxOutputTokens: 1500, responseMimeType: "application/json", responseSchema: SCHEMA },
-          withThink && think ? { thinkingConfig: { thinkingLevel: think } } : {}
-        ),
-      }),
-    });
 
-  let r, usedThink = false;
-  try {
-    r = await call(true);
-    usedThink = !!think;
-    if (!r.ok && r.status === 400 && think) { r = await call(false); usedThink = false; }
-  } catch {
-    return json({ error: "Google शी कनेक्ट होता आले नाही." }, 502);
+  let used = primary, fell = false;
+  let out = await attempt(primary, think, image, key, 8000);
+  if ((out.fail || BUSY.includes(out.r.status)) && fallback && fallback !== primary) {
+    out = await attempt(fallback, "", image, key, 20000);
+    used = fallback;
+    fell = true;
   }
   const tAi = Date.now() - t0;
-  const data = await r.json().catch(() => ({}));
+
+  if (out.fail) return json({ error: "Google शी कनेक्ट होता आले नाही. पुन्हा प्रयत्न करा." }, 502);
+  const { r, data } = out;
   if (!r.ok) {
-    const msg = r.status === 429 ? "आजची मोफत मर्यादा संपली. थोड्या वेळाने प्रयत्न करा." : "स्कॅन झाले नाही (" + r.status + ").";
-    return json({ error: msg, detail: (data && data.error && data.error.message) || "" }, 502);
+    const detail = String((data && data.error && data.error.message) || "");
+    const msg = r.status === 429
+      ? "आजची मोफत मर्यादा संपली. थोड्या वेळाने प्रयत्न करा."
+      : "स्कॅन झाले नाही (" + r.status + ")" + (detail ? ": " + detail.slice(0, 200) : "") + ".";
+    return json({ error: msg, detail }, 502);
   }
+
   const text = (data?.candidates?.[0]?.content?.parts || []).map((p) => p.text || "").join("");
   let items = [];
   try { items = JSON.parse(text).items || []; } catch {}
 
   items = items.map((it) => {
-    const m = match(it, meds);
-    return { name: String(it.name || ""), salt: String(it.salt || ""), use: String(it.use || ""), idx: m.idx, by: m.by, exact: m.exact, alts: m.alts };
+    const m = bestMatch(it, meds);
+    return { name: String(it.name || ""), salt: String(it.salt || ""), use: String(it.use || ""), idx: m.idx, by: m.by };
   });
-  return json({ items, ms: { ai: tAi, total: Date.now() - t0, model, think: usedThink ? think : "default" } });
+  return json({ items, ms: { ai: tAi, total: Date.now() - t0, model: used, fallback: fell, think: fell ? "n/a" : (think || "default") } });
 }
