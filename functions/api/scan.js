@@ -49,6 +49,7 @@ function formOf(t) {
 }
 // नाव तुलना करताना Tab, Inj असे शब्द काढायचे
 const brandOf = (t) => norm(t).replace(/\b(tab|tabs|tablet|tablets|cap|caps|capsule|capsules|inj|injection|syp|syrup)\b/g, " ");
+const firstWord = (t) => brandOf(t).trim().split(/\s+/)[0] || "";
 const fixMr = (t) => String(t || "").replace(/अ\u200d?ॅ/g, "ॲ");
 function saltText(salt, str, printed) {
   const s = String(salt || "").trim(), t = String(str || "").trim();
@@ -83,8 +84,12 @@ function bestMatch(it, meds) {
   let best = null, bestScore = 0, by = "name";
   for (const d of meds) {
     if (!unknown && d.f !== itForm) continue;             // इंजेक्शन ≠ गोळी
-    const nameSim = dice(brandOf(it.name), brandOf(d.n)) - (unknown && d.f ? 0.01 : 0);
+    let nameSim = dice(brandOf(it.name), brandOf(d.n)) - (unknown && d.f ? 0.01 : 0);
     if (!numsCompatible(itNums, d.nn)) continue;          // Dolo 650 ≠ Dolo 500
+    // Evion + 400mg = Evion 400 : पहिले नाव आणि ताकद जुळली तर तेच औषध
+    const a = firstWord(it.name), inNum = nums(it.name), dNum = nums(d.n);
+    const nameNumsOk = !inNum.size || !dNum.size || numsCompatible(inNum, dNum);
+    if (a.length >= 4 && a === firstWord(d.n) && itNums.size && d.nn.size && nameNumsOk) nameSim = 1;
     // घटक फोटोत छापलेला नसेल तर त्यावरून पर्याय दाखवायचा नाही
     const saltSim = it.saltPrinted === false || (unknown && d.f) ? 0 : jacc(itWords, d.sw);
     const score = Math.max(nameSim, saltSim * 0.95);
