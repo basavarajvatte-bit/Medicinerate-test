@@ -30,7 +30,11 @@ function numsCompatible(a, b) {
   for (const x of a) if (b.has(x)) return true;
   return false;
 }
-const words = (s) => new Set(norm(s).split(" ").filter((w) => w.length >= 4 && /^[a-z]+$/.test(w)));
+// घटकांची वेगवेगळी स्पेलिंग एकच मानायची: Amoxycillin = Amoxicillin, Clavulanate = Clavulanic acid
+const SKIP = new Set(["sodium", "potassium", "hydrochloride", "sulphate", "sulfate", "acid", "tablet", "tablets", "capsule", "capsules"]);
+const canon = (w) => ({ amoxycillin: "amoxicillin", clavulanate: "clavulanic", clavulanic: "clavulanic", acetaminophen: "paracetamol" }[w] || w);
+const words = (s) => new Set(norm(s).split(" ").filter((w) => w.length >= 4 && /^[a-z]+$/.test(w) && !SKIP.has(w)).map(canon));
+const sameSet = (a, b) => a.size > 0 && a.size === b.size && [...a].every((x) => b.has(x));
 function jacc(a, b) {
   if (!a.size || !b.size) return 0;
   let i = 0;
@@ -68,7 +72,13 @@ function parseList(text) {
     const idx = parseInt(line.slice(0, k), 10);
     if (!Number.isFinite(idx)) continue;
     const rest = line.slice(k + 2);
-    const o = rest.lastIndexOf("("), c = rest.lastIndexOf(")");
+    // शेवटच्या ) ची जोडी शोधायची, म्हणजे Paracetamol (500mg) असा घटकही नीट वाचला जाईल
+    const c = rest.lastIndexOf(")");
+    let o = -1;
+    for (let i = c - 1, depth = 1; i >= 0 && c > 0; i--) {
+      if (rest[i] === ")") depth++;
+      else if (rest[i] === "(" && --depth === 0) { o = i; break; }
+    }
     const n = o > 0 ? rest.slice(0, o).trim() : rest.trim();
     const s = o > 0 && c > o ? rest.slice(o + 1, c).trim() : "";
     out.push({ idx, n, s, nn: nums(n + " " + s), sw: words(s), f: formOf(n + " " + s) });
@@ -97,6 +107,22 @@ function bestMatch(it, meds) {
   }
   return best && bestScore >= 0.72 ? { idx: best.idx, by, d: best } : { idx: null, by: "", d: null };
 }
+
+// यादीतील त्याच घटकाची, त्याच ताकदीची आणि त्याच प्रकारची सर्व औषधे
+function sameSalt(sw, nn, form, unknown, meds) {
+  return meds.filter((d) => {
+    if (!unknown && d.f !== form) return false;
+    if (unknown && d.f) return false;
+    return sameSet(sw, d.sw) && numsCompatible(nn, d.nn);
+  }).map((d) => ({ i: d.idx, st: "same" }));
+}
+const isUnknown = (it) => /unknown/i.test(String(it.form || "")) && !formOf(it.name + " " + it.form);
+function saltOptions(it, meds) {
+  return sameSalt(words(it.salt), nums(it.name + " " + it.salt + " " + it.strength),
+    formOf(it.name + " " + it.form), isUnknown(it), meds);
+}
+// नावातच घटक असेल (Paracetamol 500) तर तो घटक छापलेलाच आहे
+const nameIsSalt = (it) => { const a = words(it.salt), b = words(it.name); return a.size > 0 && [...a].every((x) => b.has(x)); };
 
 // ---------- AI : फक्त फोटो वाचतो ----------
 const PROMPT =
@@ -306,14 +332,19 @@ export async function onRequestPost({ request, env }) {
 
   const askUse = [], askSalt = [];
   const items = res.items.map((it) => {
+    if (it.saltPrinted === false && nameIsSalt(it)) it.saltPrinted = true;
     const m = bestMatch(it, meds);
     const known = m.by === "name" && m.d;   // नावाने जुळले: आपल्या यादीतील नाव आणि घटक खरे मानायचे
     const guess = it.saltPrinted === false; // घटक फोटोत नाहीत: AI चा अंदाज ग्राहकाला दाखवायचा नाही
     const row = {
       name: known ? m.d.n : String(it.name || ""),
       salt: known && m.d.s ? m.d.s : guess ? "घटकांची माहिती दुकानात मिळेल." : saltText(it.salt, it.strength, it.saltPrinted),
-      use: guess ? "" : fixMr(it.use), idx: m.idx, by: m.by,
+      use: guess ? "" : fixMr(it.use), idx: m.idx, by: m.by, alts: [], exact: known ? m.d.idx : null,
     };
+    if (known) row.alts = m.d.s ? sameSalt(m.d.sw, m.d.nn, m.d.f, false, meds) : [{ i: m.d.idx, st: "same" }];
+    else if (!guess) row.alts = saltOptions(it, meds);
+    if (known && !row.alts.some((a) => a.i === m.d.idx)) row.alts.push({ i: m.d.idx, st: "same" });
+    if (!known) row.idx = row.alts.length ? row.alts[0].i : null;
     if (!known && guess && String(it.salt || "").trim()) askSalt.push({ row, it });
     if (known && guess && m.d.s) askUse.push(row);
     return row;
@@ -327,6 +358,11 @@ export async function onRequestPost({ request, env }) {
       if (jacc(words(x.it.salt), words(a.salt)) >= 0.5) {
         x.row.salt = saltText(x.it.salt, x.it.strength, false);
         x.row.use = fixMr(a.use || x.it.use);
+        // दोन्ही AI चे सर्व घटक जुळले तरच यादीतील औषध पर्याय म्हणून दाखवायचे
+        if (sameSet(words(x.it.salt), words(a.salt))) {
+          x.row.alts = saltOptions(x.it, meds);
+          if (x.row.alts.length) { x.row.idx = x.row.alts[0].i; x.row.by = "salt"; }
+        }
       }
     });
   }
