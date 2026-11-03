@@ -63,6 +63,8 @@ label{display:block;font-weight:600;margin:12px 0 5px;font-size:15px;color:var(-
 .verdict{margin-top:12px;padding:12px 14px;border-radius:12px;font-weight:600}
 .verdict.good{background:var(--goodbg);color:var(--good)}
 .verdict.bad{background:var(--badbg);color:var(--bad)}
+.btn.ghost.ed{color:var(--brand)}
+.edbtns{display:flex;gap:6px;justify-content:flex-end;margin-top:6px}
 .grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 .empty{color:var(--mute);text-align:center;padding:18px}
 .fail{background:var(--card);border:1px solid var(--line);border-left:4px solid var(--accent);border-radius:14px;padding:16px;margin-top:14px;font-weight:600}
@@ -149,7 +151,7 @@ label{display:block;font-weight:600;margin:12px 0 5px;font-size:15px;color:var(-
         <div><label for="p">आमचा दर (₹)</label><input id="p" type="number" inputmode="decimal" min="0"></div>
       </div>
       <label for="pack">एका पॅकेटमध्ये किती गोळ्या?</label><select id="pack"></select>
-      <p><button class="btn" id="add">सेव्ह करा</button></p>
+      <p><button class="btn" id="add">सेव्ह करा</button> <button class="btn ghost hide" id="cancel">रद्द करा</button></p>
     </div>
     <div class="result">
       <b>एकत्र आयात (CSV)</b>
@@ -178,6 +180,7 @@ var meds;
 try{meds=JSON.parse(localStorage.getItem("meds")||"null")}catch(e){meds=null}
 if(!Array.isArray(meds))meds=DEF.slice();
 var API="/api/list";
+var ready=false,edit=null;
 var pw="";
 try{pw=localStorage.getItem("opw")||""}catch(e){}
 function cache(){try{localStorage.setItem("meds",JSON.stringify(meds))}catch(e){}}
@@ -187,10 +190,16 @@ async function loadRemote(){
     var r=await fetch(API,{cache:"no-store"});
     if(!r.ok)return;
     var j=await r.json();
+    if(j&&"meds" in j)ready=true;
     if(j&&Array.isArray(j.meds)){meds=j.meds;cache();
       if($("q").value.trim()&&sel===null)suggest();
       if(!$("p2").classList.contains("hide"))renderAll()}
   }catch(e){}
+}
+function canSave(){
+  if(ready)return true;
+  alert("यादी अजून लोड झालेली नाही. पेज रिफ्रेश करून पुन्हा प्रयत्न करा.");
+  return false;
 }
 function save(){
   cache();
@@ -256,20 +265,43 @@ function show(){
   };
 }
 function renderAll(){
-  $("all").innerHTML=meds.length?meds.map(function(d,i){return '<div class="item" style="cursor:default"><span>'+esc(d.n)+'<small>'+esc(d.s)+(d.c?' · '+esc(d.c):'')+' · MRP '+fm(d.m)+'</small></span><span><span class="price">'+fm(d.p)+pk(d)+'</span> <button class="btn ghost" data-del="'+i+'">काढा</button></span></div>'}).join(""):'<div class="empty">अजून कोणतेही औषध नाही. वरून जोडा.</div>';
+  $("all").innerHTML=meds.length?meds.map(function(d,i){return '<div class="item" style="cursor:default"><span>'+esc(d.n)+'<small>'+esc(d.s)+(d.c?' · '+esc(d.c):'')+' · MRP '+fm(d.m)+'</small></span><span><span class="price">'+fm(d.p)+pk(d)+'</span><span class="edbtns"><button class="btn ghost ed" data-ed="'+i+'">बदला</button><button class="btn ghost" data-del="'+i+'">काढा</button></span></span></div>'}).join(""):'<div class="empty">अजून कोणतेही औषध नाही. वरून जोडा.</div>';
 }
-$("all").onclick=function(e){var b=e.target.closest("[data-del]");if(!b)return;meds.splice(+b.dataset.del,1);renderAll();save()};
+function clearForm(){
+  edit=null;
+  ["n","c","s","m","p","pack"].forEach(function(i){$(i).value=""});
+  $("add").textContent="सेव्ह करा";$("cancel").classList.add("hide");$("nst").textContent="";
+}
+function startEdit(i){
+  var d=meds[i];if(!d)return;
+  edit=i;
+  $("n").value=d.n;$("c").value=d.c||"";$("s").value=d.s||"";$("m").value=d.m;$("p").value=d.p;$("pack").value=d.t||"";
+  $("add").textContent="बदल सेव्ह करा";$("cancel").classList.remove("hide");
+  $("nst").className="st";$("nst").textContent=d.n+" बदलत आहात.";
+  $("nst").scrollIntoView({behavior:"smooth",block:"center"});
+}
+$("cancel").onclick=clearForm;
+$("all").onclick=function(e){
+  var u=e.target.closest("[data-ed]");
+  if(u){startEdit(+u.dataset.ed);return}
+  var b=e.target.closest("[data-del]");if(!b)return;
+  var i=+b.dataset.del;
+  if(!confirm(meds[i].n+" हे औषध यादीतून काढायचे आहे का?"))return;
+  if(!canSave())return;
+  clearForm();meds.splice(i,1);renderAll();save();
+};
 $("add").onclick=function(){
   var n=$("n").value.trim(),m=parseFloat($("m").value),p=parseFloat($("p").value);
   if(!n||isNaN(m)||isNaN(p)){alert("नाव, MRP आणि आमचा दर तिन्ही भरा.");return}
+  if(!canSave())return;
   var d={n:n,s:$("s").value.trim(),m:m,p:p};
   var c=$("c").value.trim();if(c)d.c=c;
   var t=parseInt($("pack").value,10);if(t)d.t=t;
-  meds.push(d);
-  ["n","c","s","m","p","pack"].forEach(function(i){$(i).value=""});
-  $("nst").textContent="";renderAll();save();
+  if(edit!==null&&meds[edit])meds[edit]=d;else meds.push(d);
+  clearForm();renderAll();save();
 };
 $("imp").onclick=function(){
+  if(!canSave())return;
   var c=0;$("csv").value.split("\n").forEach(function(l){
     var a=l.split(",").map(function(x){return x.trim()});
     var m=parseFloat(a[2]),p=parseFloat(a[3]);
