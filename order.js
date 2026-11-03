@@ -86,7 +86,7 @@
       });
       h+='</div><div id="qb'+k+'">'+qtyHtml(c,k)+'</div>';
     }
-    h+='<div class="use"><small>कशासाठी वापरतात</small>'+E(c.u)+'</div></div>';
+    h+=(c.u?'<div class="use"><small>कशासाठी वापरतात</small>'+E(c.u)+'</div>':'')+'</div>';
     return h;
   }
   function totals(cards){
@@ -190,26 +190,49 @@
   function resultsHtml(secs,slot){
     var h=(W.__cards||[]).map(cardHtml).join("");
     if((W.__cards||[]).some(function(c){return c.alts.length}))h+='<p class="mini">ताकद (mg) जुळते का ते दुकानात विचारा. दुसऱ्या कंपनीचे औषध हवे असेल तर वर तेच निवडा.</p>';
-    h+=slot||'<div class="addrow"><button class="addbtn" id="addcam">➕ आणखी औषध जोडा</button><button class="addgal" id="addgal">गॅलरीतून जोडा</button></div>';
+    h+=slot||'<div class="addrow"><button class="addbtn" id="addcam">➕ आणखी औषध जोडा</button><button class="addgal" id="addgal">गॅलरीतून जोडा</button><button class="addgal" id="newlist">नवीन यादी सुरू करा</button></div>';
     h+='<div class="result tot" id="totbox"></div>';
     h+='<p class="note">'+(secs?'स्कॅनला '+secs+' सेकंद लागले. ':'')+'औषध घेण्यापूर्वी फार्मासिस्टकडून खात्री करा. दुसऱ्या कंपनीचे औषध घेताना घटक आणि ताकद (mg) सारखी आहे का ते फार्मासिस्टला विचारा.</p>';
     h+='<div class="ordbar" id="ordbar"></div>';
     return h;
   }
   function wireAdd(){
-    var c=g("addcam"),v=g("addgal");
-    if(c)c.onclick=function(){W.__adding=true;g("file").click()};
-    if(v)v.onclick=function(){W.__adding=true;g("file2").click()};
+    var c=g("addcam"),v=g("addgal"),n=g("newlist");
+    if(c)c.onclick=function(){g("file").click()};
+    if(v)v.onclick=function(){g("file2").click()};
+    if(n)n.onclick=function(){W.__cards=[];g("scanres").innerHTML=""};
   }
-  function clearAdding(){W.__adding=false}
-  if(typeof document!=="undefined"){
-    ["scanbtn"].forEach(function(id){var e=g(id);if(e)e.addEventListener("click",clearAdding)});
-    var gl=document.querySelector('label[for="file2"]');if(gl)gl.addEventListener("click",clearAdding);
+  /* नाव टाइप करून शोधलेले औषध यादीत जोडणे */
+  function insertCard(list,c){
+    var key=K(c.s),at=-1;
+    if(key)list.forEach(function(o,i){if(K(o.s)===key)at=i});
+    if(at>=0)list.splice(at+1,0,c);else list.push(c);
   }
+  function addMed(i){
+    var d=M()[i];if(!d)return;
+    var list=W.__cards||(W.__cards=[]);
+    var have=list.some(function(o){return o.sel===i||o.n.toLowerCase()===d.n.toLowerCase()});
+    if(!have)insertCard(list,{n:d.n,s:d.s,u:"",ex:i,alts:[{i:i,st:"check"}],sel:i});
+    var out=g("scanres");
+    out.innerHTML=resultsHtml("");
+    bind(out);refreshTot();wireAdd();
+    g("res").innerHTML="";g("sug").innerHTML="";g("q").value="";
+    var bar=g("ordbar");if(bar)bar.scrollIntoView({behavior:"smooth",block:"center"});
+  }
+  var oldShow=W.show;
+  if(oldShow)W.show=function(){
+    oldShow();
+    var r=document.querySelector("#res .result");
+    if(!r||W.sel==null)return;
+    var b=document.createElement("button"),i=W.sel;
+    b.className="addbtn";b.style.marginTop="12px";
+    b.textContent="➕ यादीत जोडा";
+    b.onclick=function(){addMed(i)};
+    r.appendChild(b);
+  };
   W.doScan=async function(f){
     var out=g("scanres"),t0=Date.now();
-    var add=!!W.__adding&&(W.__cards||[]).length>0;
-    W.__adding=false;
+    var add=(W.__cards||[]).length>0;
     g("res").innerHTML="";g("sug").innerHTML="";
     var msgs=["फोटो वाचत आहे…","भरपूर पाणी प्या 💧","औषधाचे नाव ओळखत आहे…","रोज थोडा व्यायाम करा 🚶","माहिती तपासत आहे…","पुरेशी झोप घ्या 😴","आमचा दर शोधत आहे…","औषधे वेळेवर घ्या 💊"],mi=0;
     var pic=URL.createObjectURL(f);
@@ -228,11 +251,7 @@
       var cards=cardsFrom(j.items||[]);
       var old=W.__cards||[];
       cards=cards.filter(function(c){return !old.some(function(o){return o.n.toLowerCase()===c.n.toLowerCase()})});
-      cards.forEach(function(c){
-        var key=K(c.s),at=-1;
-        if(key)old.forEach(function(o,i){if(K(o.s)===key)at=i});
-        if(at>=0)old.splice(at+1,0,c);else old.push(c);
-      });
+      cards.forEach(function(c){insertCard(old,c)});
       W.__cards=old;
       if(!W.__cards.length){
         out.innerHTML='<div class="empty">औषध ओळखता आले नाही. स्पष्ट फोटो काढा किंवा नाव टाइप करा.</div>';
@@ -251,7 +270,7 @@
       var fail='<div class="fail">'+E(m)+'<p>पुन्हा स्कॅन करा किंवा खाली औषधाचे नाव टाइप करा.</p><button class="btn" id="retry">पुन्हा स्कॅन करा</button></div>';
       if(add){out.innerHTML=resultsHtml("",fail);bind(out);refreshTot()}
       else out.innerHTML=fail;
-      g("retry").onclick=function(){W.__adding=add;W.doScan(W.__last)};
+      g("retry").onclick=function(){W.doScan(W.__last)};
     }
   };
   W.__tulja={cardsFrom:cardsFrom,cardHtml:cardHtml,totHtml:totHtml,build:build};
