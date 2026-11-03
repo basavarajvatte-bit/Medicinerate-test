@@ -6,6 +6,7 @@
   function E(t){return String(t).replace(/[&<>"]/g,function(c){return{"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]})}
   function F(x){return "₹"+(Math.round(x*100)/100).toString()}
   function M(){return W.meds||[]}
+  function P(d){return d.t?" / "+d.t+" गोळ्या":""}
 
   /* ---------- स्टाईल ---------- */
   if(typeof document!=="undefined"&&document.head){
@@ -18,8 +19,10 @@
       ".opt.on{border-color:var(--brand);background:var(--goodbg)}"+
       ".opt .onm{flex:1;min-width:0;font-weight:600}"+
       ".opt small{display:block;font-weight:400;color:var(--mute);font-size:12px}"+
+      ".opt .price small{text-align:right}"+
       ".bdg{display:inline-block;font-size:11px;font-weight:800;padding:1px 7px;border-radius:999px;margin-left:6px;background:var(--brand);color:var(--brand-ink)}"+
-      ".bdg.b2{background:var(--accent);color:#14281d}";
+      ".bdg.b2{background:var(--accent);color:#14281d}"+
+      ".ask{margin-top:10px;padding:10px 12px;border-radius:10px;background:var(--bg);border-left:4px solid var(--accent);color:var(--ink);font-weight:600;font-size:15px}";
     document.head.appendChild(st);
   }
 
@@ -38,7 +41,7 @@
     var meds=M();
     var h='<div class="result sc"><h2>'+(k+1)+'. '+E(c.n)+'</h2><p class="salt">'+E(c.s)+'</p>';
     if(!c.alts.length){
-      h+='<div class="un">आमच्या यादीत हे औषध किंवा याच घटकाचे औषध नाही. दुकानात विचारा.</div>';
+      h+='<div class="ask">आमच्या यादीत हे औषध किंवा याच घटकाचे औषध नाही. दुकानात विचारा.</div>';
     }else{
       var any=c.alts.some(function(a){return a.st==="check"});
       h+='<div class="same">'+(c.ex!=null
@@ -51,7 +54,7 @@
           '<span class="onm">'+E(d.n)+(d.c?' · '+E(d.c):'')+
           (cheap?'<span class="bdg">सर्वात स्वस्त</span>':'')+
           (a.i===c.ex?'<span class="bdg b2">तुम्ही स्कॅन केलेले</span>':'')+
-          '<small>'+E(d.s)+' · MRP '+F(d.m)+'</small></span><span class="price">'+F(d.p)+'</span></label>';
+          '<small>'+E(d.s)+' · MRP '+F(d.m)+P(d)+'</small></span><span class="price">'+F(d.p)+(d.t?'<small>/ '+d.t+' गोळ्या</small>':'')+'</span></label>';
       });
       h+='</div><p class="note" style="margin:8px 0 0">'+(any?'ताकद (mg) जुळते का ते दुकानात विचारा. ':'ताकद सारखी आहे ✓. ')+
          'दुसऱ्या कंपनीचे औषध हवे असेल तर वर तेच निवडा.</p>';
@@ -82,8 +85,8 @@
       if(c.sel!=null&&meds[c.sel]){
         var d=meds[c.sel];
         lines.push((k+1)+". "+d.n+(d.c?" ("+d.c+")":""));
-        lines.push("   MRP: "+F(d.m));
-        lines.push("   आमचा दर: "+F(d.p));
+        lines.push("   MRP: "+F(d.m)+P(d));
+        lines.push("   आमचा दर: "+F(d.p)+P(d));
         if(c.sel!==c.ex)lines.push("   (स्कॅन केलेले: "+c.n+(c.s?", घटक: "+c.s:"")+")");
       }else{
         lines.push((k+1)+". "+c.n);
