@@ -27,7 +27,7 @@
   if(typeof document!=="undefined"&&document.head){
     var st=document.createElement("style");
     st.textContent=
-      ".same{display:flex;gap:7px;margin-top:12px;color:var(--good);font-weight:700;font-size:16px;line-height:1.35}"+
+      ".same{display:flex;gap:7px;margin-top:12px;color:var(--good);font-weight:600;font-size:14px;line-height:1.35}"+
       ".same svg{margin-top:3px}"+
       ".opts{display:grid;gap:8px;margin-top:10px}"+
       ".opt{display:flex;align-items:center;gap:10px;margin:0;padding:11px 12px;border:1.5px solid var(--line);border-radius:12px;background:var(--card);color:var(--ink);font-size:17px;cursor:pointer}"+
