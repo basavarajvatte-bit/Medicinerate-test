@@ -172,6 +172,39 @@ async function usesFor(salts, model, key) {
   }
 }
 
+// दुसरे मत: दुसऱ्या AI ला फक्त नावावरून घटक विचारणे. दोघांचे जुळले तरच दाखवायचे.
+async function secondOpinion(list, model, key) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 7000);
+  try {
+    const r = await fetch("https://generativelanguage.googleapis.com/v1beta/models/" + model + ":generateContent", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-goog-api-key": key },
+      signal: ctrl.signal,
+      body: JSON.stringify({
+        contents: [{ parts: [{ text:
+          "You are an experienced Indian pharmacist. For each Indian medicine brand below, independently give its complete composition (names only, in English) " +
+          "and what it is used for in simple everyday MARATHI (Devanagari), maximum 8 words, no medical terms. Say if it is an injection, syrup, drops or ointment. " +
+          "Use the brand name, its number and its form. Do not assume a composition just because the name sounds similar to another brand. " +
+          "If you are not sure, return an empty salt. Return one object for each line, in the same order.\n" +
+          list.map((x, i) => (i + 1) + ". " + x).join("\n") }] }],
+        generationConfig: { temperature: 0, maxOutputTokens: 800, responseMimeType: "application/json",
+          responseSchema: { type: "ARRAY", items: { type: "OBJECT",
+            properties: { salt: { type: "STRING" }, use: { type: "STRING" } }, required: ["salt", "use"] } } },
+      }),
+    });
+    if (!r.ok) return [];
+    const j = await r.json();
+    const t = (j?.candidates?.[0]?.content?.parts || []).map((p) => p.text || "").join("");
+    const a = JSON.parse(t);
+    return Array.isArray(a) ? a : [];
+  } catch {
+    return [];
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 // ---------- Google ला कॉल ----------
 async function callGemini(model, think, image, key, signal) {
   const r = await fetch("https://generativelanguage.googleapis.com/v1beta/models/" + model + ":generateContent", {
@@ -271,20 +304,32 @@ export async function onRequestPost({ request, env }) {
     return json({ error: msg, detail: l.detail || "" }, 502);
   }
 
-  const askUse = [];
+  const askUse = [], askSalt = [];
   const items = res.items.map((it) => {
     const m = bestMatch(it, meds);
     const known = m.by === "name" && m.d;   // नावाने जुळले: आपल्या यादीतील नाव आणि घटक खरे मानायचे
     const guess = it.saltPrinted === false; // घटक फोटोत नाहीत: AI चा अंदाज ग्राहकाला दाखवायचा नाही
     const row = {
       name: known ? m.d.n : String(it.name || ""),
-      salt: known && m.d.s ? m.d.s : guess ? "" : saltText(it.salt, it.strength, it.saltPrinted),
+      salt: known && m.d.s ? m.d.s : guess ? "घटकांची माहिती दुकानात मिळेल." : saltText(it.salt, it.strength, it.saltPrinted),
       use: guess ? "" : fixMr(it.use), idx: m.idx, by: m.by,
     };
-    if (!known && guess) row.guess = true;
+    if (!known && guess && String(it.salt || "").trim()) askSalt.push({ row, it });
     if (known && guess && m.d.s) askUse.push(row);
     return row;
   });
+  if (askSalt.length) {
+    const second = models[1] || models[0];
+    const ans = await secondOpinion(askSalt.map((x) => x.it.name + (x.it.form ? " (" + x.it.form + ")" : "")), second, key);
+    askSalt.forEach((x, i) => {
+      const a = ans[i] || {};
+      // दोन्ही AI चे घटक जुळले तरच ग्राहकाला दाखवायचे
+      if (jacc(words(x.it.salt), words(a.salt)) >= 0.5) {
+        x.row.salt = saltText(x.it.salt, x.it.strength, false);
+        x.row.use = fixMr(a.use || x.it.use);
+      }
+    });
+  }
   if (askUse.length) {
     const uses = await usesFor(askUse.map((r) => r.salt), models[0], key);
     askUse.forEach((r, i) => { r.use = fixMr(uses[i]); });
