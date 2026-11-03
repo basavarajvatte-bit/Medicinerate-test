@@ -53,11 +53,11 @@ const firstWord = (t) => brandOf(t).trim().split(/\s+/)[0] || "";
 const fixMr = (t) => String(t || "").replace(/अ\u200d?ॅ/g, "ॲ");
 function saltText(salt, str, printed) {
   const s = String(salt || "").trim(), t = String(str || "").trim();
-  if (!s) return "घटक फोटोत दिसले नाहीत. दुकानात विचारा.";
+  if (!s) return "घटकांची माहिती दुकानात मिळेल.";
   const need = [...nums(t)];
   const have = nums(s);
-  const full = !t ? s + " (ताकद दिसली नाही)" : need.length && need.every((n) => have.has(n)) ? s : s + " " + t;
-  return printed === false ? full + " (अंदाजे, दुकानात खात्री करा)" : full;
+  if (!t) return printed === false ? s : s + " (ताकद दिसली नाही)";
+  return need.length && need.every((n) => have.has(n)) ? s : s + " " + t;
 }
 
 function parseList(text) {
@@ -104,12 +104,13 @@ const PROMPT =
   "For each medicine return:\n" +
   "- name: the medicine name exactly as written (keep English letters).\n" +
   "- salt: the complete composition with every ingredient, names only (keep English letters). " +
-  "Combination medicines have many ingredients: list all of them. If the composition is not printed in the image, " +
-  "write it only if you are sure of every ingredient of this exact brand, otherwise return an empty string.\n" +
+  "Combination medicines have many ingredients: list all of them. Doctors usually write only the brand name, so when the composition is not printed, " +
+  "give the known composition of this brand from your own knowledge. Return an empty string only if you do not recognise the brand at all.\n" +
   "- saltPrinted: true if the composition or generic name is printed or written in the image, false if it came from your own knowledge.\n" +
   "- strength: the strength of every ingredient exactly as printed, e.g. '40mg', '500mg + 125mg', '4mg/2ml'. " +
   "Look carefully on the whole strip, box or prescription. A number that is part of the medicine name, like 'PSAM 40', counts as printed: " +
-  "return it with its unit if the unit is visible, otherwise return only the number. If no strength is printed anywhere, return an empty string. Never guess.\n" +
+  "return it with its unit if the unit is visible, otherwise return only the number. If it is not printed but you gave the composition from your knowledge, " +
+  "give the usual strength of this brand too. Otherwise return an empty string.\n" +
   "- form: one of tablet, capsule, injection, syrup, drops, ointment, other, unknown. Use only what the image shows; if it does not show the form, use unknown.\n" +
   "- use: what it is used for, in simple MARATHI (Devanagari), everyday words of ordinary village and town people, " +
   "NOT medical terms. Maximum 8 words. Examples: diabetes -> 'शुगरची गोळी'; blood pressure -> 'बीपीची गोळी'; " +
