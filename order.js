@@ -21,6 +21,8 @@
     for(var i=1;i<=60;i++)h+='<option value="'+i+'"'+(i===x.q?' selected':'')+'>'+i+'</option>';
     return h+'</select></label><div class="qtyp"><span>किंमत</span><b>'+F(x.p)+'</b></div>';
   }
+  function FW(t){return (String(t||"").toLowerCase().match(/[a-z]{3,}/)||[""])[0]}
+  function sameBrand(a,b){var x=FW(a);return !!x&&x===FW(b)}
   function K(t){return (String(t||"").toLowerCase().match(/[a-z]{4,}/g)||[]).sort().join(" ")}
 
   /* ---------- स्टाईल ---------- */
@@ -51,7 +53,7 @@
       ".qtyp b{font:400 25px/1.1 var(--disp);color:var(--brand)}"+
       ".use{margin-top:12px;padding:10px 12px;border-radius:10px;background:var(--goodbg);border-left:4px solid var(--accent);font-size:20px;line-height:1.3;font-weight:800}"+
       ".mini{font-size:12px;line-height:1.4;color:var(--mute);margin:12px 2px 0}"+
-      ".ask{margin-top:10px;padding:10px 12px;border-radius:10px;background:var(--bg);border-left:4px solid var(--accent);font-weight:600;font-size:16px}";
+      ".ask{display:flex;align-items:center;gap:8px;margin-top:10px;padding:10px 12px;border-radius:10px;background:var(--bg);border-left:4px solid var(--accent);color:var(--ink);text-decoration:none;font-weight:600;font-size:16px}";
     document.head.appendChild(st);
   }
 
@@ -71,11 +73,11 @@
     var pv=(W.__cards||[])[k-1],grp=pv&&K(c.s)&&K(pv.s)===K(c.s);
     var h='<div class="result sc'+(grp?' grp':'')+'">'+(grp?'<p class="grpnote">वरच्या औषधाचाच घटक</p>':'')+'<h2>'+(k+1)+'. '+E(c.n)+'</h2><p class="salt">'+E(c.s)+'</p>';
     if(!c.alts.length){
-      h+='<div class="ask">आमच्या यादीत हे औषध किंवा याच घटकाचे औषध नाही. दुकानात विचारा.</div>';
+      h+='<a class="ask" href="tel:+'+NUM+'" aria-label="दुकानात फोन करा">'+I("tel")+'<span>हे औषध मागवून देता येईल का, ते दुकानात विचारा.</span></a>';
     }else{
       h+='<div class="same">'+I("ok")+'<span>'+(c.ex!=null
         ?'हे औषध आमच्याकडे आहे.'
-        :'"'+E(c.n)+'" आमच्याकडे नाही, पण तोच घटक ('+E(c.s)+') असलेली ही औषधे आहेत:')+'</span></div>';
+        :(sameBrand(c.n,meds[c.alts[0].i].n)?'घटक तोच.':'घटक तोच, कंपनी वेगळी.'))+'</span></div>';
       h+='<div class="opts">';
       c.alts.forEach(function(a,j){
         var d=meds[a.i],cheap=(j===0&&c.alts.length>1);
