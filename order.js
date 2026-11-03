@@ -75,7 +75,8 @@
     var h='<div class="result sc'+(grp?' grp':'')+'">'+(grp?'<p class="grpnote">वरच्या औषधाचाच घटक</p>':'')+'<h2>'+(k+1)+'. '+E(c.n)+'</h2>'+(c.s?'<p class="salt">'+E(c.s)+'</p>':'')+
       (c.g?'<a class="gsearch" target="_blank" rel="noopener" href="https://www.google.com/search?q='+encodeURIComponent(c.n+" composition uses")+'">🔍 Google वर घटक पहा</a>':'');
     if(!c.alts.length){
-      h+='<a class="ask" href="tel:+'+NUM+'" aria-label="दुकानात फोन करा">'+I("tel")+'<span>हे औषध मागवून देता येईल का, ते दुकानात विचारा.</span></a>';
+      var wa="*"+SHOP+"*\n\nहे औषध मागवून देता येईल का?\nऔषध: "+c.n+(/[a-z]/i.test(c.s)?"\nघटक: "+c.s:"");
+      h+='<a class="ask" target="_blank" rel="noopener" href="https://wa.me/'+NUM+'?text='+encodeURIComponent(wa)+'" aria-label="WhatsApp वर दुकानाला विचारा"><span aria-hidden="true">💬</span><span>हे औषध मागवून देता येईल का, ते दुकानात विचारा.</span></a>';
     }else{
       h+='<div class="same">'+I("ok")+'<span>'+(c.ex!=null
         ?'हे औषध आमच्याकडे आहे.'
@@ -91,7 +92,7 @@
       });
       h+='</div><div id="qb'+k+'">'+qtyHtml(c,k)+'</div>';
     }
-    h+=(c.u?'<div class="use"><small>कशासाठी वापरतात</small>'+E(c.u)+'</div>':'')+'</div>';
+    h+=(c.u?'<div class="use">'+E(c.u)+'</div>':'')+'</div>';
     return h;
   }
   function totals(cards){
