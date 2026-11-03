@@ -8,6 +8,19 @@
   function M(){return W.meds||[]}
   function I(n){return '<svg class="i" aria-hidden="true"><use href="#i-'+n+'"/></svg>'}
   function P(d){return d.t?" / "+d.t+" गोळ्या":""}
+  /* निवडलेल्या गोळ्यांची किंमत: 112 / 10 गोळ्या असेल आणि 4 घेतल्या तर 44.80 */
+  function L(c,d){
+    if(!d.t)return {q:0,p:d.p,m:d.m};
+    var q=c.q||d.t;
+    return {q:q,p:d.p/d.t*q,m:d.m/d.t*q};
+  }
+  function qtyHtml(c,k){
+    var d=M()[c.sel];
+    if(!d||!d.t)return "";
+    var x=L(c,d),h='<label class="qty"><span>किती गोळ्या हव्या?</span><select data-q="'+k+'" aria-label="गोळ्यांची संख्या">';
+    for(var i=1;i<=60;i++)h+='<option value="'+i+'"'+(i===x.q?' selected':'')+'>'+i+'</option>';
+    return h+'</select></label><div class="qtyp"><span>'+x.q+' गोळ्यांचे</span><b>'+F(x.p)+'</b></div>';
+  }
   function K(t){return (String(t||"").toLowerCase().match(/[a-z]{4,}/g)||[]).sort().join(" ")}
 
   /* ---------- स्टाईल ---------- */
@@ -31,6 +44,10 @@
       ".addgal{border:0;background:none;color:var(--brand);font:700 15px Mukta,sans-serif;text-decoration:underline;text-underline-offset:3px;cursor:pointer;padding:2px}"+
       ".sc.grp{margin-top:6px;border-top-left-radius:6px;border-top-right-radius:6px;border-left:4px solid var(--accent)}"+
       ".grpnote{font-size:14px;font-weight:700;color:var(--mute);margin:0 0 6px}"+
+      ".qty{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:10px 0 0;font-weight:700;font-size:16px;color:var(--ink)}"+
+      ".qty select{width:92px;flex:none;padding:8px 10px;font-weight:700}"+
+      ".qtyp{display:flex;justify-content:space-between;align-items:baseline;margin-top:6px;font-size:16px;color:var(--mute)}"+
+      ".qtyp b{font:400 25px/1.1 var(--disp);color:var(--brand)}"+
       ".ask{margin-top:10px;padding:10px 12px;border-radius:10px;background:var(--bg);border-left:4px solid var(--accent);font-weight:600;font-size:16px}";
     document.head.appendChild(st);
   }
@@ -66,7 +83,7 @@
           (a.i===c.ex?'<span class="bdg b2">तुम्ही स्कॅन केलेले</span>':'')+
           '<small>'+E(d.s)+' · MRP '+F(d.m)+'</small></span><span class="price">'+F(d.p)+(d.t?'<small>/ '+d.t+' गोळ्या</small>':'')+'</span></label>';
       });
-      h+='</div><p class="note" style="margin:8px 0 0">'+(any?'ताकद (mg) जुळते का ते दुकानात विचारा. ':'ताकद सारखी आहे ✓. ')+
+      h+='</div><div id="qb'+k+'">'+qtyHtml(c,k)+'</div><p class="note" style="margin:8px 0 0">'+(any?'ताकद (mg) जुळते का ते दुकानात विचारा. ':'ताकद सारखी आहे ✓. ')+
          'दुसऱ्या कंपनीचे औषध हवे असेल तर वर तेच निवडा.</p>';
     }
     h+='<div class="use"><small>कशासाठी वापरतात</small>'+E(c.u)+'</div></div>';
@@ -74,7 +91,7 @@
   }
   function totals(cards){
     var t=0,m=0,n=0,meds=M();
-    cards.forEach(function(c){if(c.sel!=null&&meds[c.sel]){var d=meds[c.sel];t+=d.p;m+=d.m;n++}});
+    cards.forEach(function(c){if(c.sel!=null&&meds[c.sel]){var x=L(c,meds[c.sel]);t+=x.p;m+=x.m;n++}});
     return {t:t,m:m,n:n};
   }
   function totHtml(cards){
@@ -94,9 +111,11 @@
     cards.forEach(function(c,k){
       if(c.sel!=null&&meds[c.sel]){
         var d=meds[c.sel];
+        var x=L(c,d);
         lines.push((k+1)+". "+d.n+(d.c?" ("+d.c+")":""));
         lines.push("   MRP: "+F(d.m)+P(d));
         lines.push("   आमचा दर: "+F(d.p)+P(d));
+        if(x.q)lines.push("   मला हव्या: "+x.q+" गोळ्या = "+F(x.p));
         if(c.sel!==c.ex)lines.push("   (स्कॅन केलेले: "+c.n+(c.s?", घटक: "+c.s:"")+")");
       }else{
         lines.push((k+1)+". "+c.n);
@@ -148,10 +167,20 @@
     out.__bound=true;
     out.addEventListener("change",function(e){
       var t=e.target;
+      if(t&&t.dataset&&t.dataset.q!=null){
+        var q=(W.__cards||[])[+t.dataset.q];
+        if(!q)return;
+        q.q=+t.value;
+        g("qb"+t.dataset.q).innerHTML=qtyHtml(q,+t.dataset.q);
+        refreshTot();
+        return;
+      }
       if(!t||t.type!=="radio"||!/^g\d+$/.test(t.name))return;
       var k=+t.name.slice(1),c=(W.__cards||[])[k];
       if(!c)return;
       c.sel=+t.value;
+      c.q=null;
+      g("qb"+k).innerHTML=qtyHtml(c,k);
       var labs=out.querySelectorAll('input[name="'+t.name+'"]');
       for(var i=0;i<labs.length;i++){labs[i].parentNode.classList.toggle("on",labs[i].checked)}
       refreshTot();
