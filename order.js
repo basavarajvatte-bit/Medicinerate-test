@@ -198,7 +198,7 @@
         var have=it.filter(function(i){return i.f}).sort(function(a,b){return b.c-a.c});
         var miss=it.filter(function(i){return !i.f}).sort(function(a,b){return b.c-a.c});
         var row=function(i){return '<div class="row"><span>'+E(i.n)+(i.s?'<small style="display:block;color:var(--mute)">'+E(i.s)+'</small>':'')+'</span><b>'+i.c+' वेळा</b></div>'};
-        o.innerHTML='<div class="sum" style="display:flex;justify-content:space-between;font-weight:800;padding:12px 14px;border-radius:12px;background:var(--goodbg);color:var(--good)"><span>एकूण '+it.length+' औषधे</span><span>आमच्याकडे '+have.length+' · नाही '+miss.length+'</span></div>'+
+        o.innerHTML='<div class="sum" style="display:flex;justify-content:space-between;font-weight:800;padding:12px 14px;border-radius:12px;background:var(--goodbg);color:var(--good)"><span>एकूण '+(x.j.scans||0)+' वेळा स्कॅन · '+it.length+' औषधे</span><span>आमच्याकडे '+have.length+' · नाही '+miss.length+'</span></div>'+
           '<h3 style="color:var(--bad);margin:14px 0 4px">❌ आमच्याकडे नव्हती (मागवायला हवीत)</h3>'+(miss.length?miss.map(row).join(""):'<div class="empty">काहीच नाही 👍</div>')+
           '<h3 style="color:var(--good);margin:14px 0 4px">✅ आमच्याकडे होती</h3>'+(have.length?have.map(row).join(""):'<div class="empty">काहीच नाही</div>');
       }).catch(function(){o.innerHTML='<div class="un">इंटरनेट तपासा.</div>'});
