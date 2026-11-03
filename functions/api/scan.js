@@ -38,6 +38,24 @@ function jacc(a, b) {
   return i / (a.size + b.size - i);
 }
 
+// औषधाचा प्रकार: गोळी/कॅप्सूल "" मानतो. प्रकार वेगळा असेल तर पर्याय दाखवायचा नाही.
+function formOf(t) {
+  const x = " " + norm(t) + " ";
+  if (/ (inj|injection|vial|amp|ampoule) /.test(x)) return "inj";
+  if (/ (syp|syr|syrup|susp|suspension|liquid) /.test(x)) return "liq";
+  if (/ (drop|drops) /.test(x)) return "drop";
+  if (/ (cream|oint|ointment|gel|lotion) /.test(x)) return "top";
+  return "";
+}
+const fixMr = (t) => String(t || "").replace(/अ\u200d?ॅ/g, "ॲ");
+function withStrength(salt, str) {
+  const s = String(salt || "").trim(), t = String(str || "").trim();
+  if (!t) return s ? s + " (ताकद दिसली नाही)" : "";
+  const need = [...nums(t)];
+  const have = nums(s);
+  return need.length && need.every((n) => have.has(n)) ? s : (s + " " + t).trim();
+}
+
 function parseList(text) {
   const out = [];
   for (const line of String(text || "").split("\n")) {
@@ -49,16 +67,18 @@ function parseList(text) {
     const o = rest.lastIndexOf("("), c = rest.lastIndexOf(")");
     const n = o > 0 ? rest.slice(0, o).trim() : rest.trim();
     const s = o > 0 && c > o ? rest.slice(o + 1, c).trim() : "";
-    out.push({ idx, n, s, nn: nums(n + " " + s), sw: words(s) });
+    out.push({ idx, n, s, nn: nums(n + " " + s), sw: words(s), f: formOf(n + " " + s) });
   }
   return out;
 }
 
 function bestMatch(it, meds) {
-  const itNums = nums(it.name + " " + it.salt);
+  const itNums = nums(it.name + " " + it.salt + " " + it.strength);
+  const itForm = formOf(it.name + " " + it.form);
   const itWords = words(it.salt);
   let best = null, bestScore = 0, by = "name";
   for (const d of meds) {
+    if (d.f !== itForm) continue;                         // इंजेक्शन ≠ गोळी
     if (!numsCompatible(itNums, d.nn)) continue;          // Dolo 650 ≠ Dolo 500
     const nameSim = dice(it.name, d.n);
     const saltSim = jacc(itWords, d.sw);
@@ -73,11 +93,15 @@ const PROMPT =
   "The image shows a medicine strip/box or a doctor's prescription. Read every medicine in it.\n" +
   "For each medicine return:\n" +
   "- name: the medicine name exactly as written (keep English letters).\n" +
-  "- salt: the composition/salt (keep English letters).\n" +
+  "- salt: the composition/salt names only (keep English letters).\n" +
+  "- strength: the strength of every ingredient exactly as printed, e.g. '40mg', '500mg + 125mg', '4mg/2ml'. " +
+  "Look carefully on the whole strip, box or prescription. A number that is part of the medicine name, like 'PSAM 40', counts as printed: " +
+  "return it with its unit if the unit is visible, otherwise return only the number. If no strength is printed anywhere, return an empty string. Never guess.\n" +
+  "- form: one of tablet, capsule, injection, syrup, drops, ointment, other. Use only what the image shows; if it does not show the form, use tablet.\n" +
   "- use: what it is used for, in simple MARATHI (Devanagari), everyday words of ordinary village and town people, " +
   "NOT medical terms. Maximum 8 words. Examples: diabetes -> 'शुगरची गोळी'; blood pressure -> 'बीपीची गोळी'; " +
-  "paracetamol -> 'ताप आणि अंगदुखीची गोळी'; pantoprazole -> 'अॅसिडिटी, पोटातील जळजळीची गोळी'; " +
-  "cetirizine -> 'सर्दी, अॅलर्जीची गोळी'; antibiotic -> 'जंतूंचा संसर्ग घालवणारी गोळी (अँटिबायोटिक)'; " +
+  "paracetamol -> 'ताप आणि अंगदुखीची गोळी'; pantoprazole -> 'ॲसिडिटी, पोटातील जळजळीची गोळी'; " +
+  "cetirizine -> 'सर्दी, ॲलर्जीची गोळी'; antibiotic -> 'जंतूंचा संसर्ग घालवणारी गोळी (अँटिबायोटिक)'; " +
   "calcium -> 'हाडांसाठी कॅल्शियमची गोळी'. Never use words like hypertension, analgesic, antacid, antihistamine. " +
   "If it is a syrup, ointment, drops or injection, say so (सिरप, मलम, थेंब, इंजेक्शन) instead of 'गोळी'.\n" +
   "If you cannot read a medicine with certainty, skip it. Do not guess.";
@@ -92,9 +116,11 @@ const SCHEMA = {
         properties: {
           name: { type: "STRING" },
           salt: { type: "STRING" },
+          strength: { type: "STRING" },
+          form: { type: "STRING" },
           use: { type: "STRING", description: "Simple everyday MARATHI in Devanagari, max 8 words. Never English or Hindi." },
         },
-        required: ["name", "salt", "use"],
+        required: ["name", "salt", "strength", "form", "use"],
       },
     },
   },
@@ -202,7 +228,7 @@ export async function onRequestPost({ request, env }) {
 
   const items = res.items.map((it) => {
     const m = bestMatch(it, meds);
-    return { name: String(it.name || ""), salt: String(it.salt || ""), use: String(it.use || ""), idx: m.idx, by: m.by };
+    return { name: String(it.name || ""), salt: withStrength(it.salt, it.strength), use: fixMr(it.use), idx: m.idx, by: m.by };
   });
   return json({
     items,
