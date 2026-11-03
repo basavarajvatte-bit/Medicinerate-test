@@ -53,6 +53,7 @@
       ".qtyp b{font:400 25px/1.1 var(--disp);color:var(--brand)}"+
       ".use{margin-top:12px;padding:10px 12px;border-radius:10px;background:var(--goodbg);border-left:4px solid var(--accent);font-size:20px;line-height:1.3;font-weight:800}"+
       ".mini{font-size:12px;line-height:1.4;color:var(--mute);margin:12px 2px 0}"+
+      ".gsearch{display:block;text-align:center;margin-top:8px;padding:9px 10px;border-radius:10px;border:1.5px solid var(--brand);color:var(--brand);text-decoration:none;font-weight:700;font-size:15px}"+
       ".ask{display:flex;align-items:center;gap:8px;margin-top:10px;padding:10px 12px;border-radius:10px;background:var(--bg);border-left:4px solid var(--accent);color:var(--ink);text-decoration:none;font-weight:600;font-size:16px}";
     document.head.appendChild(st);
   }
@@ -65,13 +66,14 @@
       alts=alts.filter(function(a){return meds[a.i]});
       var ex=(it.exact!=null)?it.exact:((it.by==="name"&&it.idx!=null)?it.idx:null);
       alts.sort(function(a,b){return (meds[a.i].p-meds[b.i].p)||((b.i===ex)-(a.i===ex))});
-      return {n:it.name||"",s:it.salt||"",u:it.use||"",ex:ex,alts:alts,sel:alts.length?alts[0].i:null};
+      return {n:it.name||"",s:it.salt||"",u:it.use||"",g:!!it.guess,ex:ex,alts:alts,sel:alts.length?alts[0].i:null};
     });
   }
   function cardHtml(c,k){
     var meds=M();
     var pv=(W.__cards||[])[k-1],grp=pv&&K(c.s)&&K(pv.s)===K(c.s);
-    var h='<div class="result sc'+(grp?' grp':'')+'">'+(grp?'<p class="grpnote">वरच्या औषधाचाच घटक</p>':'')+'<h2>'+(k+1)+'. '+E(c.n)+'</h2><p class="salt">'+E(c.s)+'</p>';
+    var h='<div class="result sc'+(grp?' grp':'')+'">'+(grp?'<p class="grpnote">वरच्या औषधाचाच घटक</p>':'')+'<h2>'+(k+1)+'. '+E(c.n)+'</h2>'+(c.s?'<p class="salt">'+E(c.s)+'</p>':'')+
+      (c.g?'<a class="gsearch" target="_blank" rel="noopener" href="https://www.google.com/search?q='+encodeURIComponent(c.n+" composition uses")+'">🔍 Google वर घटक पहा</a>':'');
     if(!c.alts.length){
       h+='<a class="ask" href="tel:+'+NUM+'" aria-label="दुकानात फोन करा">'+I("tel")+'<span>हे औषध मागवून देता येईल का, ते दुकानात विचारा.</span></a>';
     }else{
